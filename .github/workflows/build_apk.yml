@@ -12,26 +12,31 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Set up Java
+      - name: Set up Java 17
         uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: Set up Flutter
+      - name: Set up Flutter Stable
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.22.x'
+          flutter-version: '3.24.x'
           channel: 'stable'
 
-      - name: Generate Native Android Project Files
+      - name: Create Native Android Shell
         run: |
-          flutter create . --org in.cinevorafilms --project-name cinevora_films
+          flutter create . --org in.cinevorafilms --project-name cinevora_films --platforms android
+          # Set compileSdkVersion & permissions automatically
+          sed -i 's/compileSdkVersion flutter.compileSdkVersion/compileSdkVersion 34/g' android/app/build.gradle || true
+          sed -i 's/targetSdkVersion flutter.targetSdkVersion/targetSdkVersion 34/g' android/app/build.gradle || true
+          # Add Internet Permission to AndroidManifest
+          sed -i 's/<manifest xmlns:android="http:\/\/schemas.android.com\/apk\/res\/android">/<manifest xmlns:android="http:\/\/schemas.android.com\/apk\/res\/android">\n    <uses-permission android:name="android.permission.INTERNET"\/>\n    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"\/>/g' android/app/src/main/AndroidManifest.xml
 
-      - name: Install Packages
+      - name: Fetch Dependencies
         run: flutter pub get
 
-      - name: Build Standalone Release APK
+      - name: Compile Release APK
         run: flutter build apk --release --no-tree-shake-icons
 
       - name: Upload Final APK File
