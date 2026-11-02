@@ -9,38 +9,42 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout Repository
+      - name: Checkout Repo Code
         uses: actions/checkout@v4
 
-      - name: Set up Java 17
+      - name: Setup Java 17
         uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: Set up Flutter Stable
+      - name: Setup Flutter Engine
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.24.x'
+          flutter-version: '3.22.x'
           channel: 'stable'
 
-      - name: Create Native Android Shell
+      - name: Assemble Complete App Project
         run: |
-          flutter create . --org in.cinevorafilms --project-name cinevora_films --platforms android
-          # Set compileSdkVersion & permissions automatically
-          sed -i 's/compileSdkVersion flutter.compileSdkVersion/compileSdkVersion 34/g' android/app/build.gradle || true
-          sed -i 's/targetSdkVersion flutter.targetSdkVersion/targetSdkVersion 34/g' android/app/build.gradle || true
-          # Add Internet Permission to AndroidManifest
-          sed -i 's/<manifest xmlns:android="http:\/\/schemas.android.com\/apk\/res\/android">/<manifest xmlns:android="http:\/\/schemas.android.com\/apk\/res\/android">\n    <uses-permission android:name="android.permission.INTERNET"\/>\n    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"\/>/g' android/app/src/main/AndroidManifest.xml
+          # 1. Clean Flutter Project Create
+          flutter create cinevora_app --org in.cinevorafilms --project-name cinevora_films
+          
+          # 2. Add Required OTT Streaming Dependencies
+          cd cinevora_app
+          flutter pub add http video_player chewie cached_network_image url_launcher
+          
+          # 3. Inject Master App Code
+          cp ../lib/main.dart lib/main.dart
+          
+          # 4. Inject Full Internet & Network Permissions for HLS Streaming
+          sed -i '/<application/i \    <uses-permission android:name="android.permission.INTERNET"\/>\n    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"\/>' android/app/src/main/AndroidManifest.xml
 
-      - name: Fetch Dependencies
-        run: flutter pub get
-
-      - name: Compile Release APK
+      - name: Compile Standalone Release APK
+        working-directory: cinevora_app
         run: flutter build apk --release --no-tree-shake-icons
 
-      - name: Upload Final APK File
+      - name: Publish Downloadable APK
         uses: actions/upload-artifact@v4
         with:
           name: CineVora-Official-App
-          path: build/app/outputs/flutter-apk/app-release.apk
+          path: cinevora_app/build/app/outputs/flutter-apk/app-release.apk
