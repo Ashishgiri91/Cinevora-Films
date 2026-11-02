@@ -9,7 +9,7 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout Repo Code
+      - name: Checkout Code
         uses: actions/checkout@v4
 
       - name: Setup Java 17
@@ -18,22 +18,29 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: Setup Flutter Engine
+      - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
           flutter-version: '3.22.x'
           channel: 'stable'
 
-      - name: Create Native Shell and Inject Code
+      - name: Build Clean Native Project
         run: |
-          # 1. Clean Flutter Shell
-          flutter create cinevora_app --org in.cinevorafilms --project-name cinevora_films
-          cd cinevora_app
-          
-          # 2. Add Validated Packages
-          flutter pub add http:^1.2.0 video_player:^2.8.6 chewie:^1.8.1 cached_network_image:^3.3.1 url_launcher:^6.2.6
-          
-          # 3. Inject Master Clean Dart Code
+          # 1. Fresh Project Initialization
+          flutter create app_builder --org in.cinevorafilms --project-name cinevora_films
+          cd app_builder
+
+          # 2. Add Packages cleanly without syntax crash
+          flutter pub add http video_player chewie cached_network_image url_launcher
+
+          # 3. Set Android minSdk to 21 for video streaming compatibility
+          sed -i 's/minSdk = flutter.minSdk/minSdk = 21/g' android/app/build.gradle || true
+          sed -i 's/minSdkVersion flutter.minSdkVersion/minSdkVersion 21/g' android/app/build.gradle || true
+
+          # 4. Add Internet Permissions
+          sed -i '/<application/i \    <uses-permission android:name="android.permission.INTERNET"\/>\n    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"\/>' android/app/src/main/AndroidManifest.xml
+
+          # 5. Inject Complete App Code
           cat << 'EOF' > lib/main.dart
           import 'dart:convert';
           import 'package:flutter/material.dart';
@@ -172,10 +179,7 @@ jobs:
                 decoration: BoxDecoration(
                   borderRadius: BorderRadius.circular(20),
                   image: thumb.isNotEmpty
-                      ? DecorationImage(
-                          image: CachedNetworkImageProvider(thumb),
-                          fit: BoxFit.cover,
-                        )
+                      ? DecorationImage(image: CachedNetworkImageProvider(thumb), fit: BoxFit.cover)
                       : null,
                   color: Colors.grey[900],
                 ),
@@ -391,11 +395,13 @@ jobs:
             Future<void> triggerUpiApp(dynamic price, String planName) async {
               final upiUrl = "upi://pay?pa=ashishgiri@upi&pn=CineVora&am=$price&cu=INR&tn=CineVora VIP $planName";
               final uri = Uri.parse(upiUrl);
-              if (await canLaunchUrl(uri)) {
-                await launchUrl(uri);
-              } else {
+              try {
+                await launchUrl(uri, mode: LaunchMode.externalApplication);
+              } catch (_) {
                 if (mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("PhonePe / GPay install nahi hai")));
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text("PhonePe / GPay install nahi hai")),
+                  );
                 }
               }
             }
@@ -411,7 +417,7 @@ jobs:
           }
 
           class _PlayerScreenState extends State<PlayerScreen> {
-            late VideoPlayerController _videoController;
+            VideoPlayerController? _videoController;
             ChewieController? _chewieController;
             bool isError = false;
 
@@ -423,13 +429,14 @@ jobs:
 
             void _initPlayer() async {
               try {
-                _videoController = VideoPlayerController.networkUrl(Uri.parse(widget.streamUrl));
-                await _videoController.initialize();
+                final controller = VideoPlayerController.networkUrl(Uri.parse(widget.streamUrl));
+                _videoController = controller;
+                await controller.initialize();
                 _chewieController = ChewieController(
-                  videoPlayerController: _videoController,
+                  videoPlayerController: controller,
                   autoPlay: true,
                   looping: false,
-                  aspectRatio: _videoController.value.aspectRatio > 0 ? _videoController.value.aspectRatio : 16 / 9,
+                  aspectRatio: controller.value.aspectRatio > 0 ? controller.value.aspectRatio : 16 / 9,
                 );
               } catch (_) {
                 isError = true;
@@ -439,7 +446,7 @@ jobs:
 
             @override
             void dispose() {
-              _videoController.dispose();
+              _videoController?.dispose();
               _chewieController?.dispose();
               super.dispose();
             }
@@ -460,16 +467,13 @@ jobs:
             }
           }
           EOF
-          
-          # 4. Inject Network Permissions
-          sed -i '/<application/i \    <uses-permission android:name="android.permission.INTERNET"\/>\n    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"\/>' android/app/src/main/AndroidManifest.xml
 
       - name: Compile Standalone Release APK
-        working-directory: cinevora_app
+        working-directory: app_builder
         run: flutter build apk --release --no-tree-shake-icons
 
       - name: Publish Downloadable APK
         uses: actions/upload-artifact@v4
         with:
           name: CineVora-Official-App
-          path: cinevora_app/build/app/outputs/flutter-apk/app-release.apk
+          path: app_builder/build/app/outputs/flutter-apk/app-release.apk
