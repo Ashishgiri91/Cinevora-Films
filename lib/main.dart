@@ -1,1 +1,380 @@
+import 'dart:convert';
+import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
+import 'package:video_player/video_player.dart';
+import 'package:chewie/chewie.dart';
+import 'package:url_launcher/url_launcher.dart';
+import 'package:cached_network_image/cached_network_image.dart';
+
+void main() {
+  runApp(const CineVoraApp());
+}
+
+class CineVoraApp extends StatelessWidget {
+  const CineVoraApp({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      title: 'CineVora Films',
+      debugShowCheckedModeBanner: false,
+      theme: ThemeData.dark().copyWith(
+        scaffoldBackgroundColor: const Color(0xFF05070A),
+        colorScheme: const ColorScheme.dark(
+          primary: Color(0xFF9333EA),
+          secondary: Color(0xFF06B6D4),
+        ),
+      ),
+      home: const HomeScreen(),
+    );
+  }
+}
+
+class HomeScreen extends StatefulWidget {
+  const HomeScreen({super.key});
+
+  @override
+  State<HomeScreen> createState() => _HomeScreenState();
+}
+
+class _HomeScreenState extends State<HomeScreen> {
+  final String apiBase = "https://cinevorafilms.in/ott_api/get_home.php";
+  bool isLoading = true;
+  List sliders = [];
+  List movies = [];
+  List series = [];
+  List bhojpuri = [];
+  List liveTv = [];
+  List plans = [];
+
+  @override
+  void initState() {
+    super.initState();
+    fetchHomeData();
+  }
+
+  Future<void> fetchHomeData() async {
+    try {
+      final res = await http.get(Uri.parse(apiBase));
+      if (res.statusCode == 200) {
+        final data = json.decode(res.body);
+        if (data['status'] == true) {
+          setState(() {
+            sliders = data['sliders'] ?? [];
+            movies = data['videos'] ?? [];
+            series = data['series'] ?? [];
+            bhojpuri = data['bhojpuri'] ?? [];
+            liveTv = data['live_tv'] ?? [];
+            plans = data['plans'] ?? [];
+            isLoading = false;
+          });
+        }
+      }
+    } catch (e) {
+      setState(() => isLoading = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (isLoading) {
+      return const Scaffold(
+        body: Center(child: CircularProgressIndicator(color: Colors.purpleAccent)),
+      );
+    }
+
+    return Scaffold(
+      appBar: AppBar(
+        backgroundColor: const Color(0xFF05070A),
+        elevation: 0,
+        title: const Text(
+          "CINEVORA",
+          style: TextStyle(fontSize: 22, fontWeight: FontWeight.w900, color: Colors.purpleAccent, letterSpacing: 2),
+        ),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.workspace_premium, color: Colors.amber),
+            onPressed: () => showVipPlansModal(context),
+          ),
+        ],
+      ),
+      body: RefreshIndicator(
+        onRefresh: fetchHomeData,
+        color: Colors.purpleAccent,
+        child: ListView(
+          padding: const EdgeInsets.only(bottom: 24),
+          children: [
+            if (sliders.isNotEmpty) _buildHeroSlider(),
+            _buildSectionHeader("🔥 Trending Movies & Blockbusters"),
+            _buildContentRow(movies),
+            _buildSectionHeader("📺 CineVora Original Web Series"),
+            _buildSeriesRow(series),
+            _buildSectionHeader("💥 Bhojpuri Hits Dhamaka"),
+            _buildContentRow(bhojpuri),
+            _buildSectionHeader("📡 Live TV Channels"),
+            _buildLiveTvRow(liveTv),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildHeroSlider() {
+    final item = sliders[0];
+    return Container(
+      margin: const EdgeInsets.all(14),
+      height: 220,
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(20),
+        image: DecorationImage(
+          image: CachedNetworkImageProvider(item['thumbnail_url'] ?? ''),
+          fit: BoxFit.cover,
+        ),
+      ),
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(20),
+          gradient: const LinearGradient(
+            begin: Alignment.bottomCenter,
+            end: Alignment.topCenter,
+            colors: [Color(0xFF05070A), Colors.transparent],
+          ),
+        ),
+        alignment: Alignment.bottomLeft,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(item['title'] ?? '', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white)),
+            const SizedBox(height: 6),
+            ElevatedButton.icon(
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.white, foregroundColor: Colors.black),
+              onPressed: () => playVideo(item['title'], item['stream_url'], item['is_premium']),
+              icon: const Icon(Icons.play_arrow, size: 18),
+              label: const Text("WATCH STREAM", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11)),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSectionHeader(String title) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 18, 16, 8),
+      child: Text(title, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: Colors.white)),
+    );
+  }
+
+  Widget _buildContentRow(List items) {
+    if (items.isEmpty) return const SizedBox();
+    return SizedBox(
+      height: 180,
+      child: ListView.builder(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.symmetric(horizontal: 14),
+        itemCount: items.length,
+        itemBuilder: (ctx, i) {
+          final m = items[i];
+          return GestureDetector(
+            onTap: () => playVideo(m['title'], m['stream_url'], m['is_premium']),
+            child: Container(
+              width: 115,
+              margin: const EdgeInsets.symmetric(horizontal: 4),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(12),
+                    child: CachedNetworkImage(
+                      imageUrl: m['thumbnail_url'] ?? '',
+                      height: 145,
+                      width: 115,
+                      fit: BoxFit.cover,
+                      errorWidget: (ctx, u, e) => Container(color: Colors.grey[900]),
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(m['title'] ?? '', maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildSeriesRow(List items) {
+    if (items.isEmpty) return const SizedBox();
+    return SizedBox(
+      height: 140,
+      child: ListView.builder(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.symmetric(horizontal: 14),
+        itemCount: items.length,
+        itemBuilder: (ctx, i) {
+          final s = items[i];
+          return Container(
+            width: 180,
+            margin: const EdgeInsets.symmetric(horizontal: 4),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(12),
+                  child: CachedNetworkImage(
+                    imageUrl: s['thumbnail_url'] ?? '',
+                    height: 105,
+                    width: 180,
+                    fit: BoxFit.cover,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(s['title'] ?? '', maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildLiveTvRow(List items) {
+    if (items.isEmpty) return const SizedBox();
+    return SizedBox(
+      height: 75,
+      child: ListView.builder(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.symmetric(horizontal: 14),
+        itemCount: items.length,
+        itemBuilder: (ctx, i) {
+          final tv = items[i];
+          return GestureDetector(
+            onTap: () => playVideo(tv['name'], tv['stream_url'], 0),
+            child: Container(
+              width: 120,
+              margin: const EdgeInsets.symmetric(horizontal: 4),
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: const Color(0xFF0C1017),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: Colors.white10),
+              ),
+              child: Row(
+                children: [
+                  CachedNetworkImage(imageUrl: tv['logo_url'] ?? '', width: 30, height: 30, fit: BoxFit.contain),
+                  const SizedBox(width: 8),
+                  Expanded(child: Text(tv['name'] ?? '', maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold))),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  void playVideo(String title, String url, dynamic isPremium) {
+    if (isPremium == 1 || isPremium == "1") {
+      showVipPlansModal(context);
+    } else {
+      Navigator.push(context, MaterialPageRoute(builder: (ctx) => PlayerScreen(title: title, streamUrl: url)));
+    }
+  }
+
+  void showVipPlansModal(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: const Color(0xFF0C1017),
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
+      builder: (ctx) {
+        return Padding(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text("👑 CineVora VIP Plans", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.amber)),
+              const SizedBox(height: 6),
+              const Text("Unlock all movies, series and live broadcast without ads", style: TextStyle(fontSize: 11, color: Colors.grey)),
+              const SizedBox(height: 14),
+              ...plans.map((p) => ListTile(
+                tileColor: const Color(0xFF05070A),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                title: Text(p['name'] ?? '', style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
+                subtitle: Text("${p['duration_days']} Din Validity", style: const TextStyle(fontSize: 10, color: Colors.grey)),
+                trailing: Text("₹${p['price']}", style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w900, color: Colors.amber)),
+                onTap: () => triggerUpiApp(p['price'], p['name']),
+              )),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> triggerUpiApp(dynamic price, String planName) async {
+    final upiUrl = "upi://pay?pa=ashishgiri@upi&pn=CineVora&am=$price&cu=INR&tn=CineVora VIP $planName";
+    final uri = Uri.parse(upiUrl);
+    if (await canLaunchUrl(uri)) {
+      await launchUrl(uri);
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("PhonePe / GPay install nahi hai")));
+    }
+  }
+}
+
+class PlayerScreen extends StatefulWidget {
+  final String title;
+  final String streamUrl;
+  const PlayerScreen({super.key, required this.title, required this.streamUrl});
+
+  @override
+  State<PlayerScreen> createState() => _PlayerScreenState();
+}
+
+class _PlayerScreenState extends State<PlayerScreen> {
+  late VideoPlayerController _videoController;
+  ChewieController? _chewieController;
+
+  @override
+  void initState() {
+    super.initState();
+    _initPlayer();
+  }
+
+  void _initPlayer() async {
+    _videoController = VideoPlayerController.uri(Uri.parse(widget.streamUrl));
+    await _videoController.initialize();
+    _chewieController = ChewieController(
+      videoPlayerController: _videoController,
+      autoPlay: true,
+      looping: false,
+      aspectRatio: _videoController.value.aspectRatio,
+    );
+    setState(() {});
+  }
+
+  @override
+  void dispose() {
+    _videoController.dispose();
+    _chewieController?.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.black,
+      appBar: AppBar(backgroundColor: Colors.black, title: Text(widget.title, style: const TextStyle(fontSize: 14))),
+      body: Center(
+        child: _chewieController != null && _chewieController!.videoPlayerController.value.isInitialized
+            ? Chewie(controller: _chewieController!)
+            : const CircularProgressIndicator(color: Colors.purpleAccent),
+      ),
+    );
+  }
+}
 
